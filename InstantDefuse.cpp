@@ -1,5 +1,7 @@
 #include "InstantDefuse.h"
 
+#include "CBaseGrenade.h"
+
 InstantDefuse InstantDefuse;
 
 IVEngineServer2* engine = nullptr;
@@ -75,7 +77,6 @@ const char* GetTranslation(const char* key) {
 
 void InstantDefuseBomb(int iSlot, bool haveKits) {
     if (!DefuseOptions.PlayerDefusing) return;
-    utils->PrintToChatAll("Started Instant Defuse");
     if (!CheckTimeBeforeDetonate(haveKits)) {
         SendToAllPrefix(GetTranslation("NotEnoughTime"));
         return;
@@ -84,11 +85,9 @@ void InstantDefuseBomb(int iSlot, bool haveKits) {
         SendToAllPrefix(GetTranslation("HaveAliveTerrorists"));
         return;
     }
-    for (auto b : DefuseOptions.HEGrenadeThrown) {
-        if (b) {
-            SendToAllPrefix(GetTranslation("HaveHEGrenadeThrown"));
-            return;
-        }
+    if (DefuseOptions.GrenadeThrown > 0) {
+        SendToAllPrefix(GetTranslation("HaveHEGrenadeThrown"));
+        return;
     }
     if (MolotovCloseToSite()) {
         SendToAllPrefix(GetTranslation("MolotovClose"));
@@ -132,7 +131,7 @@ void OnBombPlanted(const char* szName, IGameEvent* pEvent, bool bDontBroadcast) 
     if (!player) return;
     auto pPawn = player->GetPlayerPawn();
     DefuseOptions.bombLocation = pPawn->GetAbsOrigin();
-    if (debug_mode) return;
+    if (!debug_mode) return;
     char dbg[256];
     g_SMAPI->Format(dbg,sizeof(dbg),"Bomb planted on: %.1f, %.1f, %.1f",DefuseOptions.bombLocation.x,DefuseOptions.bombLocation.y,DefuseOptions.bombLocation.z);
     dbgmsg(dbg);
@@ -161,18 +160,20 @@ void OnGrenadeThrown(const char* szName, IGameEvent* pEvent, bool bDontBroadcast
     CCSPlayerController* player = CCSPlayerController::FromSlot(iSlot);
     if (!player) return;
     auto pPawn = player->GetPlayerPawn();
-    if (pPawn->GetTeam() != 2) return;
     if (debug_mode) {
         char dbg[256];
-        g_SMAPI->Format(dbg,sizeof(dbg),"Grenade name: %s | Expecting for hegrenade.",grenadeName.c_str());
+        g_SMAPI->Format(dbg,sizeof(dbg),"Grenade name: %s | Expecting for grenade.",grenadeName.c_str());
         dbgmsg(dbg);
     }
-    if (grenadeName == "hegrenade") {
-        dbgmsg("Grenade name = hegrenade, added to throw HE vector.");
-        DefuseOptions.HEGrenadeThrown.push_back(1);
+    if (grenadeName == "hegrenade" || grenadeName == "incgrenade" || grenadeName == "molotov") {
+        char dbg[256];
+        g_SMAPI->Format(dbg,sizeof(dbg),"Grenade name = %s, added to GrenadeThrown.",grenadeName.c_str());
+        dbgmsg(dbg);
+        DefuseOptions.GrenadeThrown++;
     }
     else return;
 }
+
 void OnHEGrenadeDetonate(const char* szName, IGameEvent* pEvent, bool bDontBroadcast) {
     if (!DefuseConfig.HEGrenadeThrownEnabled) return;
     CEntityIndex index = (CEntityIndex)pEvent->GetInt("entityid");
@@ -182,34 +183,43 @@ void OnHEGrenadeDetonate(const char* szName, IGameEvent* pEvent, bool bDontBroad
     CCSPlayerController* player = CCSPlayerController::FromSlot(iSlot);
     if (!player) return;
     auto pPawn = player->GetPlayerPawn();
-    if (pPawn->GetTeam() != 2) return;
     if (debug_mode) {
         char dbg[256];
         g_SMAPI->Format(dbg,sizeof(dbg),"Grenade classname: %s | Expecting for hegrenade_projectile.",grenade->GetClassname());
         dbgmsg(dbg);
     }
-    if (strcmp(grenade->GetClassname(),"hegrenade_projectile") != 0 ) return;
-    dbgmsg("Exploded HE found. Erasing 1 position from HEGrenadeThrown vector");
-    if (DefuseOptions.HEGrenadeThrown.empty()) return;
-    DefuseOptions.HEGrenadeThrown.erase(DefuseOptions.HEGrenadeThrown.begin());
+    if (strcmp(grenade->GetClassname(),"hegrenade_projectile") != 0) return;
+    dbgmsg("Exploded HE found. Erasing 1 from GrenadeThrown ");
+    if (DefuseOptions.GrenadeThrown == 0) {
+        return;
+    } DefuseOptions.GrenadeThrown--;
 }
 
 void OnInfernoStartburn(const char* szName, IGameEvent* pEvent, bool bDontBroadcast) {
     if (!DefuseConfig.MolotovOnPlantEnabled) return;
     CEntityIndex infIndex = pEvent->GetInt("entityid");
     Vector molLocation = Vector(pEvent->GetFloat("x"),pEvent->GetFloat("y"),pEvent->GetFloat("z"));
-    DefuseOptions.molotovLocation = molLocation;
-    utils->PrintToChatAll("Molotov landed on: %.1f, %.1f, %.1f",molLocation.x,molLocation.y,molLocation.z);
+    if (DefuseOptions.GrenadeThrown == 0) {
+        return;
+    } DefuseOptions.GrenadeThrown--;
+    dbgmsg("Exploded Molotov found. Erasing 1 from GrenadeThrown ");
+    DefuseOptions.molotovLocation.push_back(molLocation);
+    dbgmsg("Molotov Startburn, pushed Vector of this molotov");
+    if (debug_mode) {
+        char dbg[256];
+        g_SMAPI->Format(dbg, sizeof(dbg),"Molotov landed on: %.1f, %.1f, %.1f",molLocation.x,molLocation.y,molLocation.z);
+        dbgmsg(dbg);
+    }
 }
 
 void OnInfernoExpired(const char* szName, IGameEvent* pEvent, bool bDontBroadcast) {
-    DefuseOptions.molotovLocation = Vector(0,0,0);
+    DefuseOptions.molotovLocation.erase(DefuseOptions.molotovLocation.begin());
 }
 
 void OnRoundStart(const char* szName, IGameEvent* pEvent, bool bDontBroadcast) {
-    DefuseOptions.HEGrenadeThrown.clear();
+    DefuseOptions.GrenadeThrown = 0;
     DefuseOptions.bombLocation = Vector(0,0,0);
-    DefuseOptions.molotovLocation = Vector(0,0,0);
+    DefuseOptions.molotovLocation.clear();
     DefuseOptions.PlayerDefusing = false;
 }
 
@@ -231,15 +241,17 @@ bool HaveAliveTerrorists() {
 
 bool MolotovCloseToSite() {
     if (!DefuseConfig.MolotovOnPlantEnabled) return false;
-    auto res = DefuseOptions.molotovLocation.DistTo(DefuseOptions.bombLocation);
-    if (debug_mode) {
-        char dbg[256];
-        g_SMAPI->Format(dbg,sizeof(dbg),"dist: %0.1f",res);
-        dbgmsg(dbg);
-    }
-    if (res < 250) {
-        dbgmsg("Dist < 250 - check not passed, return");
-        return true;
+    for (auto& mLocation : DefuseOptions.molotovLocation) {
+        auto res = mLocation.DistTo(DefuseOptions.bombLocation);
+        if (debug_mode) {
+            char dbg[256];
+            g_SMAPI->Format(dbg,sizeof(dbg),"dist: %0.1f",res);
+            dbgmsg(dbg);
+        }
+        if (res < 250) {
+            dbgmsg("Dist < 250 - check not passed, return");
+            return true;
+        }
     }
     dbgmsg("Dist > 250, check passed, continue");
     return false;
@@ -334,4 +346,4 @@ const char* InstantDefuse::GetLicense() { return "Free"; }
 const char* InstantDefuse::GetLogTag() { return "InstantDefuse"; }
 const char* InstantDefuse::GetName() { return "InstantDefuse"; }
 const char* InstantDefuse::GetURL() { return ""; }
-const char* InstantDefuse::GetVersion() { return "1.0.0"; }
+const char* InstantDefuse::GetVersion() { return "1.0.2"; }

@@ -23,10 +23,10 @@ using namespace std;
 struct DefuseOptions {
     // Molotov On Plant VAR`s
     Vector bombLocation; // Bomb location based on Player location who planted
-    Vector molotovLocation;
+    vector<Vector> molotovLocation;
 
     // HE Grenade Thrown VAR`s
-    vector<int> HEGrenadeThrown; // Is T player throw grenade
+    int GrenadeThrown; // Is T player throw grenade
 
     bool PlayerDefusing;
 
