@@ -25,6 +25,7 @@ string prefix;
 bool HaveAliveTerrorists();
 bool CheckTimeBeforeDetonate(bool hasKit);
 bool MolotovCloseToSite();
+void SendTroubleMessage(int trouble);
 
 void dbgmsg(const char* text) {
     if (!debug_mode) return;
@@ -75,22 +76,42 @@ const char* GetTranslation(const char* key) {
     return phrases[string(key)].c_str();
 }
 
+float cooldownTimeStamp = 0.0f;
+
+void SendTroubleMessage(int trouble)
+{
+    const float msgCooldown = 5.0f;
+
+    if (gpGlobals->curtime < cooldownTimeStamp + msgCooldown)
+        return;
+
+    cooldownTimeStamp = gpGlobals->curtime;
+
+    switch (trouble) { 
+        case 1: SendToAllPrefix(GetTranslation("NotEnoughTime")); break; 
+        case 2: SendToAllPrefix(GetTranslation("HaveAliveTerrorists")); break; 
+        case 3: SendToAllPrefix(GetTranslation("HaveHEGrenadeThrown")); break; 
+        case 4: SendToAllPrefix(GetTranslation("MolotovClose")); break; 
+        default: break; 
+    } 
+}
+
 void InstantDefuseBomb(int iSlot, bool haveKits) {
     if (!DefuseOptions.PlayerDefusing) return;
     if (!CheckTimeBeforeDetonate(haveKits)) {
-        SendToAllPrefix(GetTranslation("NotEnoughTime"));
+        SendTroubleMessage(1);
         return;
     }
     if (HaveAliveTerrorists()) {
-        SendToAllPrefix(GetTranslation("HaveAliveTerrorists"));
+        SendTroubleMessage(2);
         return;
     }
     if (DefuseOptions.GrenadeThrown > 0) {
-        SendToAllPrefix(GetTranslation("HaveHEGrenadeThrown"));
+        SendTroubleMessage(3);
         return;
     }
     if (MolotovCloseToSite()) {
-        SendToAllPrefix(GetTranslation("MolotovClose"));
+        SendTroubleMessage(4);
         return;
     }
     utils->NextFrame([iSlot]() {
@@ -147,8 +168,21 @@ void OnBombExploded(const char* szName, IGameEvent* pEvent, bool bDontBroadcast)
 
 void OnBombBeginDefuse(const char* szName, IGameEvent* pEvent, bool bDontBroadcast) {
     DefuseOptions.PlayerDefusing = true;
-    InstantDefuseBomb(pEvent->GetInt("userid"),pEvent->GetBool("haskit"));
+
+    int userid = pEvent->GetInt("userid");
+    bool hasKit = pEvent->GetBool("haskit");
+
+    cooldownTimeStamp = 0.0f; // сброс кулдауна при начале дефуза
+
+    utils->CreateTimer(0.5f, [userid, hasKit]() {
+        if (!DefuseOptions.PlayerDefusing)
+            return -1.0f; // остановить таймер
+
+        InstantDefuseBomb(userid, hasKit);
+        return 0.5f; // повтор каждые 0.5 сек
+    });
 }
+
 void OnBombAbortDefuse(const char* szName, IGameEvent* pEvent, bool bDontBroadcast) {
     DefuseOptions.PlayerDefusing = false;
 }
@@ -170,6 +204,12 @@ void OnGrenadeThrown(const char* szName, IGameEvent* pEvent, bool bDontBroadcast
         g_SMAPI->Format(dbg,sizeof(dbg),"Grenade name = %s, added to GrenadeThrown.",grenadeName.c_str());
         dbgmsg(dbg);
         DefuseOptions.GrenadeThrown++;
+        if (grenadeName == "incgrenade" || grenadeName == "molotov"){
+            utils->CreateTimer(1.3f,[](){
+                DefuseOptions.GrenadeThrown--;
+                return -1.0f;
+            });
+        }
     }
     else return;
 }
