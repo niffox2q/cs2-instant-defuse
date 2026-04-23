@@ -139,6 +139,7 @@ bool CheckTimeBeforeDetonate(bool hasKit) {
     if ((pBomb->m_flC4Blow().GetTime() - gpGlobals->curtime) <= minTime) {
         dbgmsg("Not enough time, initial explode");
         pBomb->m_flC4Blow().SetTime(0);
+        DefuseOptions.PlayerDefusing = false;
         return false;
     }
     dbgmsg("Enough time to defuse, continue.");
@@ -386,4 +387,4 @@ const char* InstantDefuse::GetLicense() { return "Free"; }
 const char* InstantDefuse::GetLogTag() { return "InstantDefuse"; }
 const char* InstantDefuse::GetName() { return "InstantDefuse"; }
 const char* InstantDefuse::GetURL() { return ""; }
-const char* InstantDefuse::GetVersion() { return "1.0.2"; }
+const char* InstantDefuse::GetVersion() { return "1.0.5"; }
