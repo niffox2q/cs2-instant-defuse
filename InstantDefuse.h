@@ -35,6 +35,7 @@ struct DefuseConfig {
     bool MolotovOnPlantEnabled; // Config
     bool HaveTerroristAliveEnabled; // Config
     bool HEGrenadeThrownEnabled; // Config
+    bool DontBoomIfTerroristAlive;
 };
 class InstantDefuse final : public ISmmPlugin, public IMetamodListener {
 public:

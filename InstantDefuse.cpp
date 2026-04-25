@@ -23,7 +23,7 @@ bool debug_mode;
 map<string, string> phrases;
 string prefix;
 bool HaveAliveTerrorists();
-bool CheckTimeBeforeDetonate(bool hasKit);
+int CheckTimeBeforeDetonate(bool hasKit);
 bool MolotovCloseToSite();
 void SendTroubleMessage(int trouble);
 
@@ -46,6 +46,7 @@ void LoadConfig() {
     DefuseConfig.HaveTerroristAliveEnabled = config->GetBool("TerroristAlive", true);
     DefuseConfig.HEGrenadeThrownEnabled = config->GetBool("ThrownHEGrenade", true);
     DefuseConfig.MolotovOnPlantEnabled = config->GetBool("MolotovOnPlant", true);
+    DefuseConfig.DontBoomIfTerroristAlive = config->GetBool("DontBoomIf_TerroristAlive",false);
     debug_mode = config->GetBool("debug_mode", false);
     prefix = config->GetString("prefix","");
 
@@ -92,17 +93,25 @@ void SendTroubleMessage(int trouble)
         case 2: SendToAllPrefix(GetTranslation("HaveAliveTerrorists")); break; 
         case 3: SendToAllPrefix(GetTranslation("HaveHEGrenadeThrown")); break; 
         case 4: SendToAllPrefix(GetTranslation("MolotovClose")); break; 
+        case 5: SendToAllPrefix(GetTranslation("NotEnoughTime_NoBoom")); break;
         default: break; 
     } 
 }
 
 void InstantDefuseBomb(int iSlot, bool haveKits) {
     if (!DefuseOptions.PlayerDefusing) return;
-    if (!CheckTimeBeforeDetonate(haveKits)) {
-        SendTroubleMessage(1);
-        return;
+    int i_CheckTimeRes = (CheckTimeBeforeDetonate(haveKits));
+    if (i_CheckTimeRes > 0) {
+        if (i_CheckTimeRes == 1) {
+            SendTroubleMessage(1);
+            return;
+        }
+        if (i_CheckTimeRes == 2) {
+            SendTroubleMessage(5);
+            return;
+        }
     }
-    if (HaveAliveTerrorists()) {
+    if (DefuseConfig.HaveTerroristAliveEnabled && HaveAliveTerrorists()) {
         SendTroubleMessage(2);
         return;
     }
@@ -126,24 +135,29 @@ void InstantDefuseBomb(int iSlot, bool haveKits) {
         SendToAllPrefix(GetTranslation("InstantDefuse"));
         pBomb->m_flDefuseCountDown().SetTime(gpGlobals->curtime);
         pPawn->m_iProgressBarDuration() = 0;
+        DefuseOptions.PlayerDefusing = false;
     });
 }
 
-bool CheckTimeBeforeDetonate(bool hasKit) {
+int CheckTimeBeforeDetonate(bool hasKit) {
     float minTime = 10.0;
     if (hasKit) minTime = 5.0;
     CPlantedC4* pBomb = (CPlantedC4*)UTIL_FindEntityByClassname("planted_c4");
     dbgmsg("Got c4 entity, checking if enough time to defuse.");
-    if (!pBomb) return false;
+    if (!pBomb) return -1;
     auto BlowTime =  pBomb->m_flC4Blow().GetTime() - gpGlobals->curtime;
     if ((pBomb->m_flC4Blow().GetTime() - gpGlobals->curtime) <= minTime) {
+        if (DefuseConfig.DontBoomIfTerroristAlive && HaveAliveTerrorists()){
+            dbgmsg("Instant Boom canceled because have terrorist alive");
+            return 2;
+        }
         dbgmsg("Not enough time, initial explode");
         pBomb->m_flC4Blow().SetTime(0);
         DefuseOptions.PlayerDefusing = false;
-        return false;
+        return 1;
     }
     dbgmsg("Enough time to defuse, continue.");
-    return true;
+    return 0;
 }
 
 void OnBombPlanted(const char* szName, IGameEvent* pEvent, bool bDontBroadcast) {
@@ -173,14 +187,14 @@ void OnBombBeginDefuse(const char* szName, IGameEvent* pEvent, bool bDontBroadca
     int userid = pEvent->GetInt("userid");
     bool hasKit = pEvent->GetBool("haskit");
 
-    cooldownTimeStamp = 0.0f; // сброс кулдауна при начале дефуза
+    cooldownTimeStamp = 0.0f; 
 
     utils->CreateTimer(0.5f, [userid, hasKit]() {
         if (!DefuseOptions.PlayerDefusing)
-            return -1.0f; // остановить таймер
+            return -1.0f; 
 
         InstantDefuseBomb(userid, hasKit);
-        return 0.5f; // повтор каждые 0.5 сек
+        return 0.5f; 
     });
 }
 
@@ -265,7 +279,6 @@ void OnRoundStart(const char* szName, IGameEvent* pEvent, bool bDontBroadcast) {
 }
 
 bool HaveAliveTerrorists() {
-    if (!DefuseConfig.HaveTerroristAliveEnabled) return false;
     for (int i = 0; i < 64; i++) {
         CCSPlayerController* player = CCSPlayerController::FromSlot(i);
         if (!player) continue;
@@ -387,4 +400,4 @@ const char* InstantDefuse::GetLicense() { return "Free"; }
 const char* InstantDefuse::GetLogTag() { return "InstantDefuse"; }
 const char* InstantDefuse::GetName() { return "InstantDefuse"; }
 const char* InstantDefuse::GetURL() { return ""; }
-const char* InstantDefuse::GetVersion() { return "1.0.5"; }
+const char* InstantDefuse::GetVersion() { return "1.1.0"; }
